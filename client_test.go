@@ -2,6 +2,7 @@ package soap
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"io/ioutil"
 	"mime/multipart"
@@ -73,7 +74,7 @@ func TestClient_Call(t *testing.T) {
 				Foo: "hello world",
 			}
 			var resp FooResponse
-			httpResp, err := c.Call("MySOAPAction", &req, &resp)
+			httpResp, err := c.Call(context.Background(), "MySOAPAction", &req, &resp)
 			require.NoError(t, err)
 			assert.NotNil(t, httpResp)
 			assert.Exactly(t, 200, httpResp.StatusCode)
@@ -95,7 +96,7 @@ func TestClient_Call(t *testing.T) {
 			})
 			req := FooRequest{}
 			var resp FooResponse
-			httpResp, err := c.Call("MySOAPAction", &req, &resp)
+			httpResp, err := c.Call(context.Background(), "MySOAPAction", &req, &resp)
 			assert.Nil(t, httpResp)
 			assert.EqualError(t, err, "This is not a SOAP-Message: \n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<seife12:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n  xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" \n  xmlns:soap12=\"http://www.w3.org/2003/05/soap-envelope\">\n  <seife:Body></seife:Body>\n</seife:Envelope>")
 		})
@@ -117,7 +118,7 @@ func TestClient_Call(t *testing.T) {
 				Foo: "hello world",
 			}
 			var resp FooResponse
-			httpResp, err := c.Call("MySOAPAction", &req, &resp)
+			httpResp, err := c.Call(context.Background(), "MySOAPAction", &req, &resp)
 			require.NoError(t, err)
 			assert.NotNil(t, httpResp)
 			assert.Exactly(t, 200, httpResp.StatusCode)
@@ -139,7 +140,7 @@ func TestClient_Call(t *testing.T) {
 				Foo: "hello world",
 			}
 			var resp FooResponse
-			httpResp, err := c.Call("MySOAPAction", &req, &resp)
+			httpResp, err := c.Call(context.Background(), "MySOAPAction", &req, &resp)
 			assert.Nil(t, httpResp)
 			assert.EqualError(t, err, "multipart message does contain a soapy part")
 		})

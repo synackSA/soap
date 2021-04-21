@@ -152,8 +152,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleError(fmt.Errorf("could not read POST:: %s", err), w)
 			return
 		}
-		pathHandlers, pathHandlerOK := s.handlers[r.URL.Path]
-		if !pathHandlerOK {
+		pathHandlers, ok := s.handlers[r.URL.Path]
+		if !ok {
 			s.handleError(fmt.Errorf("unknown path %q", r.URL.Path), w)
 			return
 		}
@@ -170,8 +170,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
-		err = s.Marshaller.Unmarshal(soapRequestBytes, probeEnvelope)
-		if err != nil {
+		if err := s.Marshaller.Unmarshal(soapRequestBytes, probeEnvelope); err != nil {
 			s.handleError(fmt.Errorf("could not probe soap body content:: %s", err), w)
 			return
 		}
@@ -190,8 +189,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
-		err = xml.Unmarshal(soapRequestBytes, &envelope)
-		if err != nil {
+		if err := xml.Unmarshal(soapRequestBytes, &envelope); err != nil {
 			s.handleError(fmt.Errorf("could not unmarshal request:: %s", err), w)
 			return
 		}

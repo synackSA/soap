@@ -2,6 +2,7 @@ package soap
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,12 +11,11 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"reflect"
 	"strings"
 )
 
 // UserAgent is the default user agent
-const userAgent = "go-soap-0.1"
+const userAgent = "go-soap-1.1"
 
 // XMLMarshaller lets you inject your favourite custom xml implementation
 type XMLMarshaller interface {
@@ -79,7 +79,7 @@ func (c *Client) UseSoap12() {
 }
 
 // Call makes a SOAP call
-func (c *Client) Call(soapAction string, request, response interface{}) (*http.Response, error) {
+func (c *Client) Call(ctx context.Context, soapAction string, request, response interface{}) (*http.Response, error) {
 	envelope := Envelope{
 		Body: Body{Content: request},
 	}
@@ -93,7 +93,7 @@ func (c *Client) Call(soapAction string, request, response interface{}) (*http.R
 		xmlBytes = replaceSoap11to12(xmlBytes)
 	}
 
-	req, err := http.NewRequest("POST", c.url, bytes.NewReader(xmlBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewReader(xmlBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -183,14 +183,14 @@ func (c *Client) Call(soapAction string, request, response interface{}) (*http.R
 	// messages
 	rawBody = replaceSoap12to11(rawBody)
 
-	respEnvelope := new(Envelope)
+	respEnvelope := &Envelope{
+		Body: Body{Content: response},
+	}
 	// Response struct may be nil, e.g. if only a Status 200 is expected. In this
 	// case, we need a Dummy response to avoid a nil pointer if we receive a
 	// SOAP-Fault instead of the empty message (unmarshalling would fail).
 	if response == nil {
 		respEnvelope.Body = Body{Content: &dummyContent{}} // must be a pointer in dummyContent
-	} else {
-		respEnvelope.Body = Body{Content: response}
 	}
 	if err := xml.Unmarshal(rawBody, respEnvelope); err != nil {
 		return nil, fmt.Errorf("soap/client.go Call(): COULD NOT UNMARSHAL: %s\n", err)
@@ -210,12 +210,9 @@ func formatFaultXML(xmlBytes []byte, startLevel int) string {
 	indent := "	"
 	d := xml.NewDecoder(bytes.NewBuffer(xmlBytes))
 
-	typeStart := reflect.TypeOf(xml.StartElement{})
-	typeEnd := reflect.TypeOf(xml.EndElement{})
-	typeCharData := reflect.TypeOf(xml.CharData{})
-
 	level := 0
-	out := bytes.NewBuffer([]byte(""))
+	var out bytes.Buffer
+	out.Grow(len(xmlBytes))
 	ind := func() {
 		n := 0
 		if level-startLevel-1 > 0 {
@@ -232,17 +229,16 @@ func formatFaultXML(xmlBytes []byte, startLevel int) string {
 	lastWasEnd := false
 
 	for token, err := d.Token(); token != nil && err == nil; token, err = d.Token() {
-		r := reflect.ValueOf(token)
-		switch r.Type() {
-		case typeStart:
+		switch tt := token.(type) {
+		case xml.StartElement:
 			lastWasCharData = false
-			se := token.(xml.StartElement)
+
 			if lastWasEnd || lastWasStart {
 				lf()
 			}
 			lastWasStart = true
 			ind()
-			elementName := se.Name.Local
+			elementName := tt.Name.Local
 
 			if level > startLevel {
 				out.WriteString("<" + elementName)
@@ -251,14 +247,14 @@ func formatFaultXML(xmlBytes []byte, startLevel int) string {
 
 			level++
 			lastWasEnd = false
-		case typeCharData:
+		case xml.CharData:
 			lastWasCharData = true
 			_ = lastWasCharData
 			lastWasStart = false
-			cdata := token.(xml.CharData)
-			xml.EscapeText(out, cdata)
+
+			xml.EscapeText(&out, tt)
 			lastWasEnd = false
-		case typeEnd:
+		case xml.EndElement:
 			level--
 			if lastWasEnd {
 				lf()
@@ -266,15 +262,15 @@ func formatFaultXML(xmlBytes []byte, startLevel int) string {
 			}
 			lastWasEnd = true
 			lastWasStart = false
-			end := token.(xml.EndElement)
+
 			if level > startLevel {
-				endTagName := end.Name.Local
+				endTagName := tt.Name.Local
 				out.WriteString("</" + endTagName + ">")
 			}
 
 		}
 	}
-	return strings.Trim(string(out.Bytes()), " \n")
+	return string(bytes.Trim(out.Bytes(), " \n"))
 }
 
 var (

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/xml"
 	"log"
 
-	"github.com/foomo/soap"
+	"github.com/globusdigital/soap"
 )
 
 // FooRequest a simple request
@@ -22,7 +23,7 @@ func main() {
 	client := soap.NewClient("http://127.0.0.1:8080/", nil)
 	client.Log = log.Println // verbose
 	response := &FooResponse{}
-	httpResponse, err := client.Call("operationFoo", &FooRequest{Foo: "hello i am foo"}, response)
+	httpResponse, err := client.Call(context.Background(), "operationFoo", &FooRequest{Foo: "hello i am foo"}, response)
 	if err != nil {
 		panic(err)
 	}
