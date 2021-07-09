@@ -168,10 +168,19 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 			return httpResponse, nil // Empty responses are ok. Sometimes Sometimes only a Status 200 or 202 comes back
 		}
 		// There is a message body, but it's not SOAP. We cannot handle this!
-		if !(bytes.Contains(rawBody, soapPrefixTagLC) || bytes.Contains(rawBody, soapPrefixTagUC)) {
-			c.Log("This is not a SOAP-Message: \n", rawBody)
-			return nil, errors.New("This is not a SOAP-Message: \n" + string(rawBody))
+		switch c.SoapVersion {
+		case SoapVersion12:
+			if !bytes.Contains(rawBody, []byte(`soap-envelope`)) { // not quite sure if correct to assert on soap-...
+				c.Log("This is not a 1.2 SOAP-Message: \n", rawBody)
+				return nil, errors.New("This is not a 1.2 SOAP-Message: \n" + string(rawBody))
+			}
+		default:
+			if !(bytes.Contains(rawBody, soapPrefixTagLC) || bytes.Contains(rawBody, soapPrefixTagUC)) {
+				c.Log("This is not a 1.1 SOAP-Message: \n", rawBody)
+				return nil, errors.New("This is not a 1.1 SOAP-Message: \n" + string(rawBody))
+			}
 		}
+
 		c.Log("RAWBODY\n", rawBody)
 	}
 
