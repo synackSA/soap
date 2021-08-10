@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // UserAgent is the default user agent
@@ -115,9 +117,12 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 	if c.RequestHeaderFn != nil {
 		c.RequestHeaderFn(req.Header)
 	}
+	var logTraceID string
 	if c.Log != nil {
-		c.Log("Request", "url", c.url, "request_bytes", string(xmlBytes))
-		c.Log("Header", "Header", req.Header)
+		logTraceID = randString(12)
+
+		c.Log("Request", "log_trace_id", logTraceID, "url", c.url, "request_bytes", string(xmlBytes))
+		c.Log("Header", "log_trace_id", logTraceID, "Header", req.Header)
 	}
 	httpResponse, err := c.HTTPClientDoFn(req)
 	if err != nil {
@@ -126,16 +131,16 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 	defer httpResponse.Body.Close()
 
 	if c.Log != nil {
-		c.Log("Response header", "header", httpResponse.Header)
+		c.Log("Response header", "log_trace_id", logTraceID, "header", httpResponse.Header)
 	}
 	mediaType, params, err := mime.ParseMediaType(httpResponse.Header.Get("Content-Type"))
 	if err != nil {
 		if c.Log != nil {
-			c.Log("WARNING", "error", err)
+			c.Log("WARNING", "log_trace_id", logTraceID, "error", err)
 		}
 	}
 	if c.Log != nil {
-		c.Log("MIMETYPE", "mediaType", mediaType)
+		c.Log("MIMETYPE", "log_trace_id", logTraceID, "mediaType", mediaType)
 	}
 	var rawBody []byte
 	if strings.HasPrefix(mediaType, "multipart/") { // MULTIPART MESSAGE
@@ -171,7 +176,7 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 		// Check if there is a body and if yes if it's a soapy one.
 		if len(rawBody) == 0 {
 			if c.Log != nil {
-				c.Log("INFO: Response Body is empty!")
+				c.Log("INFO: Response Body is empty!", "log_trace_id", logTraceID)
 			}
 			return httpResponse, nil // Empty responses are ok. Sometimes Sometimes only a Status 200 or 202 comes back
 		}
@@ -180,26 +185,23 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 		case SoapVersion12:
 			if !bytes.Contains(rawBody, []byte(`soap-envelope`)) { // not quite sure if correct to assert on soap-...
 				if c.Log != nil {
-					c.Log("This is not a 1.2 SOAP-Message", "response_bytes", rawBody)
+					c.Log("This is not a 1.2 SOAP-Message", "log_trace_id", logTraceID, "response_bytes", rawBody)
 				}
 				return nil, fmt.Errorf("this is not a 1.2 SOAP-Message: %q", string(rawBody))
 			}
 		default:
 			if !(bytes.Contains(rawBody, soapPrefixTagLC) || bytes.Contains(rawBody, soapPrefixTagUC)) {
 				if c.Log != nil {
-					c.Log("This is not a 1.1 SOAP-Message", "response_bytes", rawBody)
+					c.Log("This is not a 1.1 SOAP-Message", "log_trace_id", logTraceID, "response_bytes", rawBody)
 				}
 				return nil, fmt.Errorf("this is not a 1.1 SOAP-Message: %q", string(rawBody))
 			}
-		}
-		if c.Log != nil {
-			c.Log("RAWBODY", "response_bytes", rawBody)
 		}
 	}
 
 	// We have an empty body or a SOAP body
 	if c.Log != nil {
-		c.Log("RAWBODY", "response_bytes", rawBody)
+		c.Log("response raw body", "log_trace_id", logTraceID, "response_bytes", rawBody)
 	}
 
 	// Our structs for Envelope, Header, Body and Fault are tagged with namespace
@@ -308,4 +310,18 @@ func replaceSoap12to11(data []byte) []byte {
 
 func replaceSoap11to12(data []byte) []byte {
 	return bytes.ReplaceAll(data, bNamespaceSoap11, bNamespaceSoap12)
+}
+
+const charset = "abcdefghijklmnopqrstuvwxyz" +
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+var seededRand = rand.New(
+	rand.NewSource(time.Now().UnixNano()))
+
+func randString(length int) string {
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
+	}
+	return string(b)
 }
