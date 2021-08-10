@@ -15,7 +15,7 @@ import (
 )
 
 // UserAgent is the default user agent
-const userAgent = "go-soap-1.1"
+const userAgent = "go-soap-1.3"
 
 // XMLMarshaller lets you inject your favourite custom xml implementation
 type XMLMarshaller interface {
@@ -41,7 +41,7 @@ type BasicAuth struct {
 
 // Client generic SOAP client
 type Client struct {
-	Log             func(...interface{}) // optional
+	Log             func(msg string, keyString_ValueInterface ...interface{}) // optional
 	url             string
 	tls             bool
 	auth            *BasicAuth
@@ -58,7 +58,6 @@ type Client struct {
 // http.Transport.
 func NewClient(url string, auth *BasicAuth) *Client {
 	return &Client{
-		Log:            func(...interface{}) {}, // do nothing or add your fmt.Print* or log.*
 		url:            url,
 		auth:           auth,
 		Marshaller:     defaultMarshaller{},
@@ -116,21 +115,28 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 	if c.RequestHeaderFn != nil {
 		c.RequestHeaderFn(req.Header)
 	}
-	c.Log("POST to", c.url, "with\n", xmlBytes)
-	c.Log("Header", req.Header)
+	if c.Log != nil {
+		c.Log("Request", "url", c.url, "request_bytes", string(xmlBytes))
+		c.Log("Header", "Header", req.Header)
+	}
 	httpResponse, err := c.HTTPClientDoFn(req)
 	if err != nil {
 		return nil, err
 	}
 	defer httpResponse.Body.Close()
 
-	c.Log("\n\n## Response header:\n", httpResponse.Header)
-
+	if c.Log != nil {
+		c.Log("Response header", "header", httpResponse.Header)
+	}
 	mediaType, params, err := mime.ParseMediaType(httpResponse.Header.Get("Content-Type"))
 	if err != nil {
-		c.Log("WARNING:", err)
+		if c.Log != nil {
+			c.Log("WARNING", "error", err)
+		}
 	}
-	c.Log("MIMETYPE:", mediaType)
+	if c.Log != nil {
+		c.Log("MIMETYPE", "mediaType", mediaType)
+	}
 	var rawBody []byte
 	if strings.HasPrefix(mediaType, "multipart/") { // MULTIPART MESSAGE
 		mr := multipart.NewReader(httpResponse.Body, params["boundary"])
@@ -164,28 +170,37 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 		}
 		// Check if there is a body and if yes if it's a soapy one.
 		if len(rawBody) == 0 {
-			c.Log("INFO: Response Body is empty!")
+			if c.Log != nil {
+				c.Log("INFO: Response Body is empty!")
+			}
 			return httpResponse, nil // Empty responses are ok. Sometimes Sometimes only a Status 200 or 202 comes back
 		}
 		// There is a message body, but it's not SOAP. We cannot handle this!
 		switch c.SoapVersion {
 		case SoapVersion12:
 			if !bytes.Contains(rawBody, []byte(`soap-envelope`)) { // not quite sure if correct to assert on soap-...
-				c.Log("This is not a 1.2 SOAP-Message: \n", rawBody)
-				return nil, errors.New("This is not a 1.2 SOAP-Message: \n" + string(rawBody))
+				if c.Log != nil {
+					c.Log("This is not a 1.2 SOAP-Message", "response_bytes", rawBody)
+				}
+				return nil, fmt.Errorf("this is not a 1.2 SOAP-Message: %q", string(rawBody))
 			}
 		default:
 			if !(bytes.Contains(rawBody, soapPrefixTagLC) || bytes.Contains(rawBody, soapPrefixTagUC)) {
-				c.Log("This is not a 1.1 SOAP-Message: \n", rawBody)
-				return nil, errors.New("This is not a 1.1 SOAP-Message: \n" + string(rawBody))
+				if c.Log != nil {
+					c.Log("This is not a 1.1 SOAP-Message", "response_bytes", rawBody)
+				}
+				return nil, fmt.Errorf("this is not a 1.1 SOAP-Message: %q", string(rawBody))
 			}
 		}
-
-		c.Log("RAWBODY\n", rawBody)
+		if c.Log != nil {
+			c.Log("RAWBODY", "response_bytes", rawBody)
+		}
 	}
 
 	// We have an empty body or a SOAP body
-	c.Log("\n\n## Response body:\n", rawBody)
+	if c.Log != nil {
+		c.Log("RAWBODY", "response_bytes", rawBody)
+	}
 
 	// Our structs for Envelope, Header, Body and Fault are tagged with namespace
 	// for SOAP 1.1. Therefore we must adjust namespaces for incoming SOAP 1.2
@@ -202,13 +217,13 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 		respEnvelope.Body = Body{Content: &dummyContent{}} // must be a pointer in dummyContent
 	}
 	if err := xml.Unmarshal(rawBody, respEnvelope); err != nil {
-		return nil, fmt.Errorf("soap/client.go Call(): COULD NOT UNMARSHAL: %s\n", err)
+		return nil, fmt.Errorf("soap/client.go Call(): COULD NOT UNMARSHAL: %w\n", err)
 	}
 
 	// If a SOAP Fault is received, try to jsonMarshal it and return it via the
 	// error.
 	if fault := respEnvelope.Body.Fault; fault != nil {
-		return nil, errors.New("SOAP FAULT:\n" + formatFaultXML(rawBody, 1))
+		return nil, fmt.Errorf("SOAP FAULT: %q", formatFaultXML(rawBody, 1))
 	}
 	return httpResponse, nil
 }
