@@ -12,6 +12,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -45,6 +46,7 @@ type BasicAuth struct {
 type Client struct {
 	Log             func(msg string, keyString_ValueInterface ...interface{}) // optional
 	url             string
+	urlMasked       string
 	tls             bool
 	auth            *BasicAuth
 	Marshaller      XMLMarshaller
@@ -58,9 +60,16 @@ type Client struct {
 // NewClient constructor. SOAP 1.1 is used by default. Switch to SOAP 1.2 with
 // UseSoap12(). Argument rt can be nil and it will fall back to the default
 // http.Transport.
-func NewClient(url string, auth *BasicAuth) *Client {
+func NewClient(postToURL string, auth *BasicAuth) *Client {
+	var urlMasked string
+	if pURL, err := url.Parse(postToURL); err == nil {
+		pURL.User = url.UserPassword(pURL.User.Username(), "********")
+		urlMasked = pURL.String()
+	}
+
 	return &Client{
-		url:            url,
+		url:            postToURL,
+		urlMasked:      urlMasked,
 		auth:           auth,
 		Marshaller:     defaultMarshaller{},
 		ContentType:    SoapContentType11, // default is SOAP 1.1
@@ -120,9 +129,10 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 	var logTraceID string
 	if c.Log != nil {
 		logTraceID = randString(12)
-
-		c.Log("Request", "log_trace_id", logTraceID, "url", c.url, "request_bytes", string(xmlBytes))
-		c.Log("Header", "log_trace_id", logTraceID, "Header", req.Header)
+		c.Log("Request", "log_trace_id", logTraceID, "url", c.urlMasked, "request_bytes", string(xmlBytes))
+		hdr := req.Header.Clone()
+		hdr.Set("Authorization", "removed")
+		c.Log("Header", "log_trace_id", logTraceID, "Header", hdr)
 	}
 	httpResponse, err := c.HTTPClientDoFn(req)
 	if err != nil {
