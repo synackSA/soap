@@ -44,17 +44,18 @@ type BasicAuth struct {
 
 // Client generic SOAP client
 type Client struct {
-	Log             func(msg string, keyString_ValueInterface ...interface{}) // optional
-	url             string
-	urlMasked       string
-	tls             bool
-	auth            *BasicAuth
-	Marshaller      XMLMarshaller
-	UserAgent       string            // optional, falls back to "go-soap-0.1"
-	ContentType     string            // optional, falls back to SOAP 1.1
-	RequestHeaderFn func(http.Header) // optional, allows to modify the request header before it gets submitted.
-	SoapVersion     string
-	HTTPClientDoFn  func(req *http.Request) (*http.Response, error)
+	Log                  func(msg string, keyString_ValueInterface ...interface{}) // optional
+	url                  string
+	urlMasked            string
+	tls                  bool
+	auth                 *BasicAuth
+	Marshaller           XMLMarshaller
+	UserAgent            string            // optional, falls back to "go-soap-0.1"
+	ContentType          string            // optional, falls back to SOAP 1.1
+	RequestHeaderFn      func(http.Header) // optional, allows to modify the request header before it gets submitted.
+	SoapVersion          string
+	HTTPClientDoFn       func(req *http.Request) (*http.Response, error)
+	LogRemoveHeaderNames []string
 }
 
 // NewClient constructor. SOAP 1.1 is used by default. Switch to SOAP 1.2 with
@@ -68,13 +69,14 @@ func NewClient(postToURL string, auth *BasicAuth) *Client {
 	}
 
 	return &Client{
-		url:            postToURL,
-		urlMasked:      urlMasked,
-		auth:           auth,
-		Marshaller:     defaultMarshaller{},
-		ContentType:    SoapContentType11, // default is SOAP 1.1
-		SoapVersion:    SoapVersion11,
-		HTTPClientDoFn: http.DefaultClient.Do,
+		url:                  postToURL,
+		urlMasked:            urlMasked,
+		auth:                 auth,
+		Marshaller:           defaultMarshaller{},
+		ContentType:          SoapContentType11, // default is SOAP 1.1
+		SoapVersion:          SoapVersion11,
+		HTTPClientDoFn:       http.DefaultClient.Do,
+		LogRemoveHeaderNames: []string{"Authorization", "Apikey"},
 	}
 }
 
@@ -131,7 +133,9 @@ func (c *Client) Call(ctx context.Context, soapAction string, request, response 
 		logTraceID = randString(12)
 		c.Log("Request", "log_trace_id", logTraceID, "url", c.urlMasked, "request_bytes", string(xmlBytes))
 		hdr := req.Header.Clone()
-		hdr.Set("Authorization", "removed")
+		for _, n := range c.LogRemoveHeaderNames {
+			hdr.Set(n, "removed")
+		}
 		c.Log("Header", "log_trace_id", logTraceID, "Header", hdr)
 	}
 	httpResponse, err := c.HTTPClientDoFn(req)
